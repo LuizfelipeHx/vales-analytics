@@ -166,6 +166,62 @@ body {
     color: var(--accent-secondary) !important;
 }
 
+/* ===== File Upload ===== */
+.upload-section {
+    margin-bottom: 16px;
+}
+
+.file-upload-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px 24px;
+    background: var(--success);
+    color: white;
+    border-radius: var(--radius-sm);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+    margin-bottom: 8px;
+}
+
+.file-upload-btn:active {
+    transform: scale(0.98);
+}
+
+.file-name {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.divider {
+    display: flex;
+    align-items: center;
+    text-align: center;
+    margin: 16px 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.divider::before,
+.divider::after {
+    content: '';
+    flex: 1;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.divider span {
+    padding: 0 12px;
+}
+
+.url-section p {
+    margin-bottom: 8px;
+}
+
 /* ===== Buttons ===== */
 .btn {
     padding: 14px 24px;
