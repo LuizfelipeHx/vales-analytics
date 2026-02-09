@@ -3,38 +3,24 @@ let rawData = [];
 let statusChart = null;
 
 // ===== Constants =====
-const STORAGE_KEY = 'vales_analytics_url';
+const EXCEL_URL = 'https://raw.githubusercontent.com/LuizfelipeHx/vales-analytics/main/dados.xlsx';
 const HEADER_ROW = 7;
 const DATA_START = 8;
 
 // ===== DOM Elements =====
 const loadingOverlay = document.getElementById('loadingOverlay');
-const configPanel = document.getElementById('configPanel');
 const emptyState = document.getElementById('emptyState');
 const dashboard = document.getElementById('dashboard');
-const excelUrlInput = document.getElementById('excelUrl');
-const fileInput = document.getElementById('fileInput');
-const fileNameSpan = document.getElementById('fileName');
-
-// Selected file reference
-let selectedFile = null;
 
 // ===== Initialize =====
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
+    loadDataFromGitHub();
 });
 
 function setupEventListeners() {
-    // Config buttons
-    document.getElementById('openConfigBtn').addEventListener('click', openConfig);
-    document.getElementById('loadDataBtn').addEventListener('click', loadData);
-    document.getElementById('cancelConfigBtn').addEventListener('click', closeConfig);
-
-    // File input
-    fileInput.addEventListener('change', handleFileSelect);
-
-    // Header refresh
-    document.getElementById('refreshBtn').addEventListener('click', openConfig);
+    // Refresh button
+    document.getElementById('refreshBtn').addEventListener('click', loadDataFromGitHub);
 
     // Bottom nav
     document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -47,83 +33,16 @@ function setupEventListeners() {
     });
 }
 
-// ===== Config Panel =====
-function openConfig() {
-    configPanel.classList.add('active');
-}
-
-function closeConfig() {
-    configPanel.classList.remove('active');
-}
-
-function handleFileSelect(e) {
-    const file = e.target.files[0];
-    if (file) {
-        selectedFile = file;
-        fileNameSpan.textContent = file.name;
-    }
-}
-
-function loadData() {
-    if (selectedFile) {
-        loadDataFromFile(selectedFile);
-    } else if (excelUrlInput.value.trim()) {
-        loadDataFromUrl(excelUrlInput.value.trim());
-    } else {
-        alert('Selecione um arquivo ou insira uma URL');
-    }
-}
-
-// ===== Data Loading from File =====
-async function loadDataFromFile(file) {
-    showLoading(true);
-    closeConfig();
-
-    try {
-        const arrayBuffer = await file.arrayBuffer();
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
-
-        // Find the correct sheet
-        const sheetName = findValidSheet(workbook);
-        if (!sheetName) {
-            throw new Error('Nenhuma aba válida encontrada');
-        }
-
-        const sheet = workbook.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-
-        rawData = parseSheetData(rows);
-        console.log('Dados carregados:', rawData.length, 'registros');
-
-        if (rawData.length === 0) {
-            throw new Error('Nenhum dado encontrado na planilha');
-        }
-
-        showDashboard();
-        updateAllData();
-
-    } catch (error) {
-        console.error('Erro:', error);
-        alert('Erro ao carregar dados: ' + error.message);
-        emptyState.style.display = 'block';
-        dashboard.style.display = 'none';
-    } finally {
-        showLoading(false);
-    }
-}
-
-// ===== Data Loading =====
-async function loadDataFromUrl(url) {
+// ===== Data Loading from GitHub =====
+async function loadDataFromGitHub() {
     showLoading(true);
 
     try {
-        // Convert OneDrive share URL to direct download URL
-        const downloadUrl = convertOneDriveUrl(url);
-        console.log('Downloading from:', downloadUrl);
+        console.log('Carregando dados de:', EXCEL_URL);
 
-        const response = await fetch(downloadUrl);
+        const response = await fetch(EXCEL_URL + '?t=' + Date.now()); // Cache busting
         if (!response.ok) {
-            throw new Error('Falha ao baixar arquivo');
+            throw new Error('Arquivo não encontrado. Verifique se dados.xlsx foi enviado para o GitHub.');
         }
 
         const arrayBuffer = await response.arrayBuffer();
@@ -147,32 +66,14 @@ async function loadDataFromUrl(url) {
 
         showDashboard();
         updateAllData();
+        updateLastUpdate();
 
     } catch (error) {
         console.error('Erro:', error);
-        alert('Erro ao carregar dados: ' + error.message);
-        emptyState.style.display = 'block';
-        dashboard.style.display = 'none';
+        showError(error.message);
     } finally {
         showLoading(false);
     }
-}
-
-function convertOneDriveUrl(url) {
-    // Handle different OneDrive URL formats
-    if (url.includes('1drv.ms')) {
-        // Short URL - need to get redirect
-        // For PWA, we'll use a proxy approach
-        return `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-    }
-
-    if (url.includes('sharepoint.com') || url.includes('onedrive.live.com')) {
-        // Try to convert to download URL
-        return url.replace(/\?.*/, '') + '?download=1';
-    }
-
-    // Already a direct URL
-    return url;
 }
 
 function findValidSheet(workbook) {
@@ -256,13 +157,22 @@ function showDashboard() {
     dashboard.style.display = 'block';
 }
 
-function refreshData() {
-    const url = localStorage.getItem(STORAGE_KEY);
-    if (url) {
-        loadDataFromUrl(url);
-    } else {
-        openConfig();
-    }
+function showError(message) {
+    emptyState.style.display = 'block';
+    dashboard.style.display = 'none';
+    emptyState.querySelector('h2').textContent = 'Erro ao carregar';
+    emptyState.querySelector('p').textContent = message;
+}
+
+function updateLastUpdate() {
+    const now = new Date();
+    const formatted = now.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    document.getElementById('periodInfo').innerHTML = `<span>📅 ${rawData.length} registros • Atualizado: ${formatted}</span>`;
 }
 
 function handleNavAction(action) {
@@ -272,10 +182,7 @@ function handleNavAction(action) {
 
     switch (action) {
         case 'refresh':
-            refreshData();
-            break;
-        case 'config':
-            openConfig();
+            loadDataFromGitHub();
             break;
     }
 }
@@ -297,7 +204,6 @@ function updateAllData() {
     updateOfensores();
     updateSalas();
     updateChart(totals);
-    updatePeriodInfo();
 }
 
 function calculateTotals(data) {
@@ -476,11 +382,6 @@ function updateChart(totals) {
             }
         }
     });
-}
-
-function updatePeriodInfo() {
-    const count = rawData.length;
-    document.getElementById('periodInfo').innerHTML = `<span>📅 ${count} registros carregados</span>`;
 }
 
 // ===== Utilities =====
