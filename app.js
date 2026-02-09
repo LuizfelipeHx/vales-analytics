@@ -9,11 +9,8 @@ let salaSortBy = 'quantidade';
 
 // ===== Constants =====
 const EXCEL_URL = 'https://raw.githubusercontent.com/LuizfelipeHx/vales-analytics/main/dados.xlsx';
-const SHEET_NAME = 'Acomp Físico'; // Nome exato da aba
 const HEADER_ROW = 7;  // Linha 8 no Excel (0-indexed)
 const DATA_START = 8;  // Linha 9 no Excel (0-indexed)
-// Colunas confirmadas: G=Data, K=Nome, L=Sala, O=Status, T=Valor
-const COL = { data: 6, nome: 10, sala: 11, status: 14, valor: 19 };
 
 // ===== DOM Elements =====
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -27,29 +24,21 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupEventListeners() {
-    // Refresh button
     document.getElementById('refreshBtn').addEventListener('click', loadDataFromGitHub);
-
-    // Filters toggle
     document.getElementById('filtersToggle').addEventListener('click', toggleFilters);
-
-    // Filter changes
     document.getElementById('filterPeriodo').addEventListener('change', applyFilters);
     document.getElementById('filterSala').addEventListener('change', applyFilters);
     document.getElementById('filterStatus').addEventListener('change', applyFilters);
     document.getElementById('clearFilters').addEventListener('click', clearFilters);
 
-    // Bottom nav
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => handleNavAction(btn.dataset.action));
     });
 
-    // Tabs
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', () => switchTab(tab.dataset.tab));
     });
 
-    // Ranking toggles
     document.querySelectorAll('#tab-ofensores .ranking-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('#tab-ofensores .ranking-btn').forEach(b => b.classList.remove('active'));
@@ -75,20 +64,11 @@ function toggleFilters() {
     document.getElementById('filtersContent').classList.toggle('active');
 }
 
-function isValidSala(sala) {
-    if (!sala || sala === '-' || sala === '') return false;
-    const lower = sala.toLowerCase().trim();
-    // Only exclude exact summary rows
-    if (lower === 'total' || lower === 'total de vale' || lower === 'total de vales' || lower === 'soma' || lower === 'subtotal') return false;
-    return true;
-}
-
-function isValidNome(nome) {
-    if (!nome || nome === '-' || nome === '') return false;
-    const lower = nome.toLowerCase().trim();
-    // Only exclude exact summary rows
-    if (lower === 'total' || lower === 'total de vale' || lower === 'total de vales' || lower === 'soma' || lower === 'subtotal') return false;
-    return true;
+function isSummaryRow(text) {
+    if (!text) return false;
+    const lower = text.toLowerCase().trim();
+    return lower === 'total' || lower === 'total de vale' || lower === 'total de vales' ||
+        lower === 'soma' || lower === 'subtotal' || lower === 'grand total';
 }
 
 function populateFilters() {
@@ -98,25 +78,22 @@ function populateFilters() {
 
     rawData.forEach(item => {
         if (item.periodo) periodos.add(item.periodo);
-        if (item.sala && isValidSala(item.sala)) salas.add(item.sala);
+        if (item.sala && item.sala !== '-' && item.sala !== '') salas.add(item.sala);
         if (item.status && item.status !== 'Não informado') statuses.add(item.status);
     });
 
-    // Populate period filter
     const periodoSelect = document.getElementById('filterPeriodo');
     periodoSelect.innerHTML = '<option value="">Todos</option>';
     [...periodos].sort().reverse().forEach(p => {
         periodoSelect.innerHTML += `<option value="${p}">${p}</option>`;
     });
 
-    // Populate sala filter - sorted alphabetically
     const salaSelect = document.getElementById('filterSala');
     salaSelect.innerHTML = '<option value="">Todas</option>';
     [...salas].sort().forEach(s => {
         salaSelect.innerHTML += `<option value="${s}">${s}</option>`;
     });
 
-    // Populate status filter
     const statusSelect = document.getElementById('filterStatus');
     statusSelect.innerHTML = '<option value="">Todos</option>';
     [...statuses].sort().forEach(s => {
@@ -152,27 +129,31 @@ async function loadDataFromGitHub() {
     showLoading(true);
 
     try {
-        console.log('Carregando dados de:', EXCEL_URL);
-
         const response = await fetch(EXCEL_URL + '?t=' + Date.now());
         if (!response.ok) {
-            throw new Error('Arquivo não encontrado. Verifique se dados.xlsx foi enviado.');
+            throw new Error('Arquivo não encontrado no GitHub.');
         }
 
         const arrayBuffer = await response.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
 
+        console.log('Abas disponíveis:', workbook.SheetNames);
+
+        // Find the correct sheet
         const sheetName = findValidSheet(workbook);
-        if (!sheetName) {
-            throw new Error('Nenhuma aba válida encontrada');
-        }
+        console.log('Aba selecionada:', sheetName);
 
         const sheet = workbook.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+        console.log('Total linhas (com vazias):', rows.length);
 
-        rawData = parseSheetData(rows);
+        // Find columns dynamically
+        const colMap = detectColumns(rows);
+        console.log('Colunas detectadas:', colMap);
+
+        rawData = parseSheetData(rows, colMap);
         filteredData = [...rawData];
-        console.log('Dados carregados:', rawData.length, 'registros');
+        console.log('Registros válidos:', rawData.length);
 
         if (rawData.length === 0) {
             throw new Error('Nenhum dado encontrado na planilha');
@@ -192,78 +173,102 @@ async function loadDataFromGitHub() {
 }
 
 function findValidSheet(workbook) {
-    console.log('Abas disponíveis:', workbook.SheetNames);
-
-    // Primeiro tenta o nome exato
-    if (workbook.SheetNames.includes(SHEET_NAME)) {
-        console.log('Aba encontrada (exata):', SHEET_NAME);
-        return SHEET_NAME;
-    }
-
-    // Busca parcial sem acento
     const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const target = normalize(SHEET_NAME);
 
-    for (const name of workbook.SheetNames) {
-        if (normalize(name).includes('acomp')) {
-            console.log('Aba encontrada (parcial):', name);
-            return name;
-        }
+    // Try exact names
+    const names = ['Acomp Físico', 'Acomp Fisico'];
+    for (const n of names) {
+        if (workbook.SheetNames.includes(n)) return n;
     }
 
-    // Tenta keywords gerais
-    const keywords = ['fisico', 'vales', 'dados', 'planilha'];
+    // Try partial match
     for (const name of workbook.SheetNames) {
         const lower = normalize(name);
-        if (keywords.some(k => lower.includes(k))) {
-            console.log('Aba encontrada (keyword):', name);
+        if (lower.includes('acomp') || lower.includes('fisico') || lower.includes('vales') || lower.includes('dados')) {
             return name;
         }
     }
 
-    console.warn('Nenhuma aba reconhecida, usando primeira:', workbook.SheetNames[0]);
     return workbook.SheetNames[0];
 }
 
-function parseSheetData(rows) {
+function detectColumns(rows) {
+    // Default positions: G=6, K=10, L=11, O=14, T=19
+    const colMap = { data: 6, nome: 10, sala: 11, status: 14, valor: 19 };
+
+    // Try to find header row (search rows 0-10)
+    for (let r = 0; r <= Math.min(10, rows.length - 1); r++) {
+        const row = rows[r];
+        if (!row) continue;
+
+        let foundHeaders = 0;
+        for (let j = 0; j < row.length; j++) {
+            const cell = String(row[j] || '').toLowerCase().trim();
+
+            if (cell === 'data' || (cell.includes('data') && (cell.includes('lan') || cell.includes('lcto')))) {
+                colMap.data = j; foundHeaders++;
+            }
+            if (cell.includes('nome') || cell.includes('funcionário') || cell.includes('funcionario')) {
+                colMap.nome = j; foundHeaders++;
+            }
+            if (cell.includes('sala') || cell === 'setor' || cell === 'unidade') {
+                colMap.sala = j; foundHeaders++;
+            }
+            if (cell.includes('status') || cell.includes('situação') || cell.includes('situacao')) {
+                colMap.status = j; foundHeaders++;
+            }
+            if (cell.includes('valor') || cell === 'vl') {
+                colMap.valor = j; foundHeaders++;
+            }
+        }
+
+        if (foundHeaders >= 3) {
+            colMap.headerRow = r;
+            colMap.dataStart = r + 1;
+            console.log('Cabeçalho encontrado na linha', r + 1, ':', row.slice(0, 22));
+            return colMap;
+        }
+    }
+
+    // If no header found, use defaults
+    console.log('Cabeçalho padrão (linha 8) usado');
+    if (rows[HEADER_ROW]) {
+        console.log('Conteúdo linha 8:', rows[HEADER_ROW].slice(0, 22));
+    }
+    colMap.headerRow = HEADER_ROW;
+    colMap.dataStart = DATA_START;
+    return colMap;
+}
+
+function parseSheetData(rows, colMap) {
     const data = [];
+    const startRow = colMap.dataStart || DATA_START;
 
-    console.log('Total de linhas brutas:', rows.length);
-    console.log('Usando colunas: Data=G(' + COL.data + '), Nome=K(' + COL.nome + '), Sala=L(' + COL.sala + '), Status=O(' + COL.status + '), Valor=T(' + COL.valor + ')');
-
-    // Log header row for debugging
-    const headerRowData = rows[HEADER_ROW];
-    if (headerRowData) {
-        console.log('Cabeçalho (linha 8):', headerRowData.slice(0, 22));
+    // Log first data rows for debugging
+    for (let i = startRow; i < Math.min(startRow + 3, rows.length); i++) {
+        const row = rows[i];
+        if (row) {
+            console.log(`Linha ${i + 1}: nome="${row[colMap.nome]}", sala="${row[colMap.sala]}", status="${row[colMap.status]}", valor="${row[colMap.valor]}"`);
+        }
     }
 
-    // Log first data row for debugging
-    if (rows[DATA_START]) {
-        const firstRow = rows[DATA_START];
-        console.log('Primeira linha de dados (linha 9):');
-        console.log('  G(data):', firstRow[COL.data]);
-        console.log('  K(nome):', firstRow[COL.nome]);
-        console.log('  L(sala):', firstRow[COL.sala]);
-        console.log('  O(status):', firstRow[COL.status]);
-        console.log('  T(valor):', firstRow[COL.valor]);
-    }
-
-    for (let i = DATA_START; i < rows.length; i++) {
+    for (let i = startRow; i < rows.length; i++) {
         const row = rows[i];
         if (!row) continue;
 
-        const nome = String(row[COL.nome] || '').trim();
-        const sala = String(row[COL.sala] || '').trim();
-        const status = String(row[COL.status] || '').trim();
-        const valor = parseFloat(row[COL.valor]) || 0;
+        const nome = String(row[colMap.nome] || '').trim();
+        const sala = String(row[colMap.sala] || '').trim();
+        const status = String(row[colMap.status] || '').trim();
+        const valor = parseFloat(row[colMap.valor]) || 0;
 
-        // Skip empty or summary rows
+        // Skip completely empty rows
         if (!nome && !status) continue;
-        if (!isValidNome(nome)) continue;
+        // Skip summary rows
+        if (isSummaryRow(nome)) continue;
 
         // Parse date for period
         let periodo = '';
-        const dataCell = row[COL.data];
+        const dataCell = row[colMap.data];
         if (dataCell) {
             const dateObj = parseExcelDate(dataCell);
             if (dateObj) {
@@ -272,8 +277,8 @@ function parseSheetData(rows) {
         }
 
         data.push({
-            nome: nome,
-            sala: isValidSala(sala) ? sala : 'N/A',
+            nome: nome || 'N/A',
+            sala: isSummaryRow(sala) ? 'N/A' : (sala || 'N/A'),
             status: normalizeStatus(status),
             valor: valor,
             periodo: periodo
@@ -285,9 +290,7 @@ function parseSheetData(rows) {
 
 function parseExcelDate(value) {
     if (typeof value === 'number') {
-        // Excel serial date
-        const date = new Date((value - 25569) * 86400 * 1000);
-        return date;
+        return new Date((value - 25569) * 86400 * 1000);
     } else if (typeof value === 'string') {
         const parts = value.split('/');
         if (parts.length === 3) {
@@ -302,7 +305,7 @@ function normalizeStatus(status) {
     return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
 }
 
-// ===== UI Updates =====
+// ===== UI =====
 function showLoading(show) {
     loadingOverlay.classList.toggle('active', show);
 }
@@ -321,12 +324,7 @@ function showError(message) {
 
 function updateLastUpdate() {
     const now = new Date();
-    const formatted = now.toLocaleString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    const formatted = now.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     document.getElementById('periodInfo').innerHTML = `<span>📅 ${filteredData.length} registros • ${formatted}</span>`;
 }
 
@@ -334,9 +332,7 @@ function handleNavAction(action) {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.action === action);
     });
-    if (action === 'refresh') {
-        loadDataFromGitHub();
-    }
+    if (action === 'refresh') loadDataFromGitHub();
 }
 
 function switchTab(tabName) {
@@ -348,7 +344,7 @@ function switchTab(tabName) {
     });
 }
 
-// ===== Data Calculations =====
+// ===== Calculations =====
 function updateAllData() {
     const totals = calculateTotals(filteredData);
     updateKPIs(totals);
@@ -368,22 +364,17 @@ function calculateTotals(data) {
     };
 
     data.forEach(item => {
-        const status = item.status.toLowerCase();
-        if (status.includes('reprovad') || status.includes('cobrança')) {
-            result.reprovado.count++;
-            result.reprovado.value += item.valor;
-        } else if (status.includes('abonad')) {
-            result.abonado.count++;
-            result.abonado.value += item.valor;
-        } else if (status.includes('análise') || status.includes('analise')) {
-            result.analise.count++;
-            result.analise.value += item.valor;
+        const s = item.status.toLowerCase();
+        if (s.includes('reprovad') || s.includes('cobrança')) {
+            result.reprovado.count++; result.reprovado.value += item.valor;
+        } else if (s.includes('abonad')) {
+            result.abonado.count++; result.abonado.value += item.valor;
+        } else if (s.includes('análise') || s.includes('analise')) {
+            result.analise.count++; result.analise.value += item.valor;
         } else {
-            result.outros.count++;
-            result.outros.value += item.valor;
+            result.outros.count++; result.outros.value += item.valor;
         }
     });
-
     return result;
 }
 
@@ -399,65 +390,55 @@ function updateKPIs(totals) {
     const valorMedio = totals.reprovado.count > 0 ? totals.reprovado.value / totals.reprovado.count : 0;
     document.getElementById('valorMedio').textContent = formatCurrency(valorMedio);
 
-    const taxaReprovacao = totals.total > 0 ? (totals.reprovado.count / totals.total * 100) : 0;
-    document.getElementById('taxaReprovacao').textContent = taxaReprovacao.toFixed(1) + '%';
+    const taxa = totals.total > 0 ? (totals.reprovado.count / totals.total * 100) : 0;
+    document.getElementById('taxaReprovacao').textContent = taxa.toFixed(1) + '%';
 
-    const valorTotal = filteredData.reduce((sum, item) => sum + item.valor, 0);
+    const valorTotal = filteredData.reduce((sum, i) => sum + i.valor, 0);
     document.getElementById('valorTotal').textContent = formatCurrency(valorTotal);
 }
 
 function updateOfensores() {
-    const reprovados = filteredData.filter(item => {
-        const status = item.status.toLowerCase();
-        return status.includes('reprovad') || status.includes('cobrança');
+    const reprovados = filteredData.filter(i => {
+        const s = i.status.toLowerCase();
+        return s.includes('reprovad') || s.includes('cobrança');
     });
 
     const grouped = {};
-    reprovados.forEach(item => {
-        if (!isValidNome(item.nome)) return;
-        if (!grouped[item.nome]) {
-            grouped[item.nome] = { nome: item.nome, sala: item.sala, count: 0, valor: 0 };
-        }
-        grouped[item.nome].count++;
-        grouped[item.nome].valor += item.valor;
+    reprovados.forEach(i => {
+        if (isSummaryRow(i.nome)) return;
+        if (!grouped[i.nome]) grouped[i.nome] = { nome: i.nome, sala: i.sala, count: 0, valor: 0 };
+        grouped[i.nome].count++;
+        grouped[i.nome].valor += i.valor;
     });
 
     const sortKey = ofensorSortBy === 'valor' ? 'valor' : 'count';
-    const top10 = Object.values(grouped)
-        .sort((a, b) => b[sortKey] - a[sortKey])
-        .slice(0, 10);
-
-    renderOfensorList('ofensorList', top10);
+    const top10 = Object.values(grouped).sort((a, b) => b[sortKey] - a[sortKey]).slice(0, 10);
+    renderList('ofensorList', top10, 'nome');
 }
 
 function updateSalas() {
-    const reprovados = filteredData.filter(item => {
-        const status = item.status.toLowerCase();
-        return status.includes('reprovad') || status.includes('cobrança');
+    const reprovados = filteredData.filter(i => {
+        const s = i.status.toLowerCase();
+        return s.includes('reprovad') || s.includes('cobrança');
     });
 
     const grouped = {};
-    reprovados.forEach(item => {
-        if (!isValidSala(item.sala)) return;
-        if (!grouped[item.sala]) {
-            grouped[item.sala] = { sala: item.sala, count: 0, valor: 0 };
-        }
-        grouped[item.sala].count++;
-        grouped[item.sala].valor += item.valor;
+    reprovados.forEach(i => {
+        if (isSummaryRow(i.sala) || i.sala === 'N/A') return;
+        if (!grouped[i.sala]) grouped[i.sala] = { sala: i.sala, count: 0, valor: 0 };
+        grouped[i.sala].count++;
+        grouped[i.sala].valor += i.valor;
     });
 
     const sortKey = salaSortBy === 'valor' ? 'valor' : 'count';
-    const top10 = Object.values(grouped)
-        .sort((a, b) => b[sortKey] - a[sortKey])
-        .slice(0, 10);
-
-    renderSalaList('salaList', top10);
+    const top10 = Object.values(grouped).sort((a, b) => b[sortKey] - a[sortKey]).slice(0, 10);
+    renderList('salaList', top10, 'sala');
 }
 
-function renderOfensorList(containerId, data) {
+function renderList(containerId, data, nameField) {
     const container = document.getElementById(containerId);
     if (data.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:20px">Nenhum ofensor encontrado</p>';
+        container.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:20px">Nenhum dado encontrado</p>';
         return;
     }
 
@@ -465,29 +446,8 @@ function renderOfensorList(containerId, data) {
         <div class="ofensor-item">
             <div class="ofensor-rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</div>
             <div class="ofensor-info">
-                <div class="ofensor-name">${item.nome || 'N/A'}</div>
-                <div class="ofensor-sala">${item.sala || 'Sala N/A'}</div>
-            </div>
-            <div class="ofensor-stats">
-                <div class="ofensor-count">${item.count} vales</div>
-                <div class="ofensor-value">${formatCurrency(item.valor)}</div>
-            </div>
-        </div>
-    `).join('');
-}
-
-function renderSalaList(containerId, data) {
-    const container = document.getElementById(containerId);
-    if (data.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:20px">Nenhuma sala encontrada</p>';
-        return;
-    }
-
-    container.innerHTML = data.map((item, i) => `
-        <div class="ofensor-item">
-            <div class="ofensor-rank ${i < 3 ? 'rank-' + (i + 1) : ''}">${i + 1}</div>
-            <div class="ofensor-info">
-                <div class="ofensor-name">${item.sala || 'N/A'}</div>
+                <div class="ofensor-name">${item[nameField] || 'N/A'}</div>
+                ${nameField === 'nome' ? `<div class="ofensor-sala">${item.sala || ''}</div>` : ''}
             </div>
             <div class="ofensor-stats">
                 <div class="ofensor-count">${item.count} vales</div>
@@ -532,36 +492,26 @@ function updateEvolutionChart() {
     const ctx = document.getElementById('evolutionChart').getContext('2d');
     if (evolutionChart) evolutionChart.destroy();
 
-    // Group by period
     const periodos = {};
     filteredData.forEach(item => {
         if (!item.periodo) return;
-        if (!periodos[item.periodo]) {
-            periodos[item.periodo] = { reprovado: 0, abonado: 0, analise: 0 };
-        }
-        const status = item.status.toLowerCase();
-        if (status.includes('reprovad') || status.includes('cobrança')) {
-            periodos[item.periodo].reprovado++;
-        } else if (status.includes('abonad')) {
-            periodos[item.periodo].abonado++;
-        } else if (status.includes('análise') || status.includes('analise')) {
-            periodos[item.periodo].analise++;
-        }
+        if (!periodos[item.periodo]) periodos[item.periodo] = { reprovado: 0, abonado: 0, analise: 0 };
+        const s = item.status.toLowerCase();
+        if (s.includes('reprovad') || s.includes('cobrança')) periodos[item.periodo].reprovado++;
+        else if (s.includes('abonad')) periodos[item.periodo].abonado++;
+        else if (s.includes('análise') || s.includes('analise')) periodos[item.periodo].analise++;
     });
 
     const labels = Object.keys(periodos).sort();
-    const reprovadoData = labels.map(p => periodos[p].reprovado);
-    const abonadoData = labels.map(p => periodos[p].abonado);
-    const analiseData = labels.map(p => periodos[p].analise);
 
     evolutionChart = new Chart(ctx, {
         type: 'bar',
         data: {
             labels: labels,
             datasets: [
-                { label: 'Reprovados', data: reprovadoData, backgroundColor: '#ff7675' },
-                { label: 'Abonados', data: abonadoData, backgroundColor: '#00cec9' },
-                { label: 'Análise', data: analiseData, backgroundColor: '#9b59b6' }
+                { label: 'Reprovados', data: labels.map(p => periodos[p].reprovado), backgroundColor: '#ff7675' },
+                { label: 'Abonados', data: labels.map(p => periodos[p].abonado), backgroundColor: '#00cec9' },
+                { label: 'Análise', data: labels.map(p => periodos[p].analise), backgroundColor: '#9b59b6' }
             ]
         },
         options: {
@@ -582,30 +532,27 @@ function updateSalaChart() {
     const ctx = document.getElementById('salaChart').getContext('2d');
     if (salaChart) salaChart.destroy();
 
-    // Get top 5 salas by reprovados
-    const reprovados = filteredData.filter(item => {
-        const status = item.status.toLowerCase();
-        return status.includes('reprovad') || status.includes('cobrança');
+    const reprovados = filteredData.filter(i => {
+        const s = i.status.toLowerCase();
+        return s.includes('reprovad') || s.includes('cobrança');
     });
 
     const grouped = {};
-    reprovados.forEach(item => {
-        if (!isValidSala(item.sala)) return;
-        if (!grouped[item.sala]) grouped[item.sala] = 0;
-        grouped[item.sala]++;
+    reprovados.forEach(i => {
+        if (isSummaryRow(i.sala) || i.sala === 'N/A') return;
+        if (!grouped[i.sala]) grouped[i.sala] = 0;
+        grouped[i.sala]++;
     });
 
     const sorted = Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 5);
-    const labels = sorted.map(s => s[0] || 'N/A');
-    const data = sorted.map(s => s[1]);
 
     salaChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: labels,
+            labels: sorted.map(s => s[0]),
             datasets: [{
                 label: 'Reprovados',
-                data: data,
+                data: sorted.map(s => s[1]),
                 backgroundColor: ['#ff7675', '#fd9644', '#fdcb6e', '#a29bfe', '#74b9ff']
             }]
         },
@@ -617,9 +564,7 @@ function updateSalaChart() {
                 x: { ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
                 y: { ticks: { color: '#a0a0b0', font: { size: 11 } }, grid: { display: false } }
             },
-            plugins: {
-                legend: { display: false }
-            }
+            plugins: { legend: { display: false } }
         }
     });
 }
@@ -627,18 +572,16 @@ function updateSalaChart() {
 // ===== Utilities =====
 function formatCurrency(value) {
     return new Intl.NumberFormat('pt-BR', {
-        style: 'currency',
-        currency: 'BRL',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
+        style: 'currency', currency: 'BRL',
+        minimumFractionDigits: 0, maximumFractionDigits: 0
     }).format(value);
 }
 
-// ===== Service Worker Registration =====
+// ===== Service Worker =====
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('sw.js')
-            .then(reg => console.log('Service Worker registrado'))
-            .catch(err => console.log('Erro no SW:', err));
+            .then(reg => console.log('SW registrado'))
+            .catch(err => console.log('Erro SW:', err));
     });
 }
