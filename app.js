@@ -76,20 +76,18 @@ function toggleFilters() {
 }
 
 function isValidSala(sala) {
-    if (!sala) return false;
-    // Exclude rows that are summaries or invalid
-    const invalid = ['total', 'soma', 'subtotal', 'vale', '-', ''];
-    if (invalid.some(i => sala.toLowerCase().includes(i))) return false;
-    // Exclude pure numbers
-    if (/^\d+$/.test(sala)) return false;
+    if (!sala || sala === '-' || sala === '') return false;
+    const lower = sala.toLowerCase().trim();
+    // Only exclude exact summary rows
+    if (lower === 'total' || lower === 'total de vale' || lower === 'total de vales' || lower === 'soma' || lower === 'subtotal') return false;
     return true;
 }
 
 function isValidNome(nome) {
-    if (!nome) return false;
-    const invalid = ['total', 'soma', 'subtotal', '-', ''];
-    if (invalid.some(i => nome.toLowerCase().includes(i))) return false;
-    if (/^\d+$/.test(nome)) return false;
+    if (!nome || nome === '-' || nome === '') return false;
+    const lower = nome.toLowerCase().trim();
+    // Only exclude exact summary rows
+    if (lower === 'total' || lower === 'total de vale' || lower === 'total de vales' || lower === 'soma' || lower === 'subtotal') return false;
     return true;
 }
 
@@ -194,19 +192,36 @@ async function loadDataFromGitHub() {
 }
 
 function findValidSheet(workbook) {
+    console.log('Abas disponíveis:', workbook.SheetNames);
+
     // Primeiro tenta o nome exato
     if (workbook.SheetNames.includes(SHEET_NAME)) {
+        console.log('Aba encontrada (exata):', SHEET_NAME);
         return SHEET_NAME;
     }
-    // Busca por keywords
-    const keywords = ['acomp', 'físico', 'fisico', 'vales', 'dados', 'planilha'];
+
+    // Busca parcial sem acento
+    const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const target = normalize(SHEET_NAME);
+
     for (const name of workbook.SheetNames) {
-        const lower = name.toLowerCase();
-        if (keywords.some(k => lower.includes(k))) {
+        if (normalize(name).includes('acomp')) {
+            console.log('Aba encontrada (parcial):', name);
             return name;
         }
     }
-    console.warn('Aba não encontrada, usando primeira:', workbook.SheetNames[0]);
+
+    // Tenta keywords gerais
+    const keywords = ['fisico', 'vales', 'dados', 'planilha'];
+    for (const name of workbook.SheetNames) {
+        const lower = normalize(name);
+        if (keywords.some(k => lower.includes(k))) {
+            console.log('Aba encontrada (keyword):', name);
+            return name;
+        }
+    }
+
+    console.warn('Nenhuma aba reconhecida, usando primeira:', workbook.SheetNames[0]);
     return workbook.SheetNames[0];
 }
 
@@ -222,6 +237,17 @@ function parseSheetData(rows) {
         console.log('Cabeçalho (linha 8):', headerRowData.slice(0, 22));
     }
 
+    // Log first data row for debugging
+    if (rows[DATA_START]) {
+        const firstRow = rows[DATA_START];
+        console.log('Primeira linha de dados (linha 9):');
+        console.log('  G(data):', firstRow[COL.data]);
+        console.log('  K(nome):', firstRow[COL.nome]);
+        console.log('  L(sala):', firstRow[COL.sala]);
+        console.log('  O(status):', firstRow[COL.status]);
+        console.log('  T(valor):', firstRow[COL.valor]);
+    }
+
     for (let i = DATA_START; i < rows.length; i++) {
         const row = rows[i];
         if (!row) continue;
@@ -231,9 +257,9 @@ function parseSheetData(rows) {
         const status = String(row[COL.status] || '').trim();
         const valor = parseFloat(row[COL.valor]) || 0;
 
-        // Skip invalid/summary rows
+        // Skip empty or summary rows
+        if (!nome && !status) continue;
         if (!isValidNome(nome)) continue;
-        if (!status) continue;
 
         // Parse date for period
         let periodo = '';
