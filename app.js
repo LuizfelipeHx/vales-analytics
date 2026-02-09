@@ -13,21 +13,28 @@ const configPanel = document.getElementById('configPanel');
 const emptyState = document.getElementById('emptyState');
 const dashboard = document.getElementById('dashboard');
 const excelUrlInput = document.getElementById('excelUrl');
+const fileInput = document.getElementById('fileInput');
+const fileNameSpan = document.getElementById('fileName');
+
+// Selected file reference
+let selectedFile = null;
 
 // ===== Initialize =====
 document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
-    loadStoredUrl();
 });
 
 function setupEventListeners() {
     // Config buttons
     document.getElementById('openConfigBtn').addEventListener('click', openConfig);
-    document.getElementById('saveUrlBtn').addEventListener('click', saveAndLoad);
+    document.getElementById('loadDataBtn').addEventListener('click', loadData);
     document.getElementById('cancelConfigBtn').addEventListener('click', closeConfig);
 
+    // File input
+    fileInput.addEventListener('change', handleFileSelect);
+
     // Header refresh
-    document.getElementById('refreshBtn').addEventListener('click', refreshData);
+    document.getElementById('refreshBtn').addEventListener('click', openConfig);
 
     // Bottom nav
     document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -40,14 +47,6 @@ function setupEventListeners() {
     });
 }
 
-function loadStoredUrl() {
-    const storedUrl = localStorage.getItem(STORAGE_KEY);
-    if (storedUrl) {
-        excelUrlInput.value = storedUrl;
-        loadDataFromUrl(storedUrl);
-    }
-}
-
 // ===== Config Panel =====
 function openConfig() {
     configPanel.classList.add('active');
@@ -57,16 +56,60 @@ function closeConfig() {
     configPanel.classList.remove('active');
 }
 
-function saveAndLoad() {
-    const url = excelUrlInput.value.trim();
-    if (!url) {
-        alert('Por favor, insira a URL do Excel');
-        return;
+function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) {
+        selectedFile = file;
+        fileNameSpan.textContent = file.name;
     }
+}
 
-    localStorage.setItem(STORAGE_KEY, url);
+function loadData() {
+    if (selectedFile) {
+        loadDataFromFile(selectedFile);
+    } else if (excelUrlInput.value.trim()) {
+        loadDataFromUrl(excelUrlInput.value.trim());
+    } else {
+        alert('Selecione um arquivo ou insira uma URL');
+    }
+}
+
+// ===== Data Loading from File =====
+async function loadDataFromFile(file) {
+    showLoading(true);
     closeConfig();
-    loadDataFromUrl(url);
+
+    try {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+        // Find the correct sheet
+        const sheetName = findValidSheet(workbook);
+        if (!sheetName) {
+            throw new Error('Nenhuma aba válida encontrada');
+        }
+
+        const sheet = workbook.Sheets[sheetName];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+        rawData = parseSheetData(rows);
+        console.log('Dados carregados:', rawData.length, 'registros');
+
+        if (rawData.length === 0) {
+            throw new Error('Nenhum dado encontrado na planilha');
+        }
+
+        showDashboard();
+        updateAllData();
+
+    } catch (error) {
+        console.error('Erro:', error);
+        alert('Erro ao carregar dados: ' + error.message);
+        emptyState.style.display = 'block';
+        dashboard.style.display = 'none';
+    } finally {
+        showLoading(false);
+    }
 }
 
 // ===== Data Loading =====
