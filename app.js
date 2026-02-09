@@ -9,8 +9,11 @@ let salaSortBy = 'quantidade';
 
 // ===== Constants =====
 const EXCEL_URL = 'https://raw.githubusercontent.com/LuizfelipeHx/vales-analytics/main/dados.xlsx';
-const HEADER_ROW = 7;
-const DATA_START = 8;
+const SHEET_NAME = 'Acomp Físico'; // Nome exato da aba
+const HEADER_ROW = 7;  // Linha 8 no Excel (0-indexed)
+const DATA_START = 8;  // Linha 9 no Excel (0-indexed)
+// Colunas confirmadas: G=Data, K=Nome, L=Sala, O=Status, T=Valor
+const COL = { data: 6, nome: 10, sala: 11, status: 14, valor: 19 };
 
 // ===== DOM Elements =====
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -191,63 +194,42 @@ async function loadDataFromGitHub() {
 }
 
 function findValidSheet(workbook) {
-    const keywords = ['vales', 'dados', 'planilha', 'sheet'];
+    // Primeiro tenta o nome exato
+    if (workbook.SheetNames.includes(SHEET_NAME)) {
+        return SHEET_NAME;
+    }
+    // Busca por keywords
+    const keywords = ['acomp', 'físico', 'fisico', 'vales', 'dados', 'planilha'];
     for (const name of workbook.SheetNames) {
         const lower = name.toLowerCase();
         if (keywords.some(k => lower.includes(k))) {
             return name;
         }
     }
+    console.warn('Aba não encontrada, usando primeira:', workbook.SheetNames[0]);
     return workbook.SheetNames[0];
 }
 
 function parseSheetData(rows) {
     const data = [];
 
-    // Default column positions based on user's spreadsheet structure
-    // Headers at row 8 (index 7), data starts row 9 (index 8)
-    let colMap = { data: 6, nome: 10, sala: 11, status: 14, valor: 19 };
+    console.log('Total de linhas brutas:', rows.length);
+    console.log('Usando colunas: Data=G(' + COL.data + '), Nome=K(' + COL.nome + '), Sala=L(' + COL.sala + '), Status=O(' + COL.status + '), Valor=T(' + COL.valor + ')');
 
+    // Log header row for debugging
     const headerRowData = rows[HEADER_ROW];
     if (headerRowData) {
-        console.log('Cabeçalho encontrado:', headerRowData);
-
-        for (let j = 0; j < headerRowData.length; j++) {
-            const cell = String(headerRowData[j] || '').toLowerCase().trim();
-
-            // Data column
-            if ((cell.includes('data') && (cell.includes('lan') || cell.includes('lcto'))) || cell === 'data') {
-                colMap.data = j;
-            }
-            // Nome column
-            if (cell.includes('nome') || cell.includes('funcionário') || cell.includes('funcionario')) {
-                colMap.nome = j;
-            }
-            // Sala column - be more specific
-            if (cell === 'sala' || cell === 'setor' || cell === 'unidade' || cell.includes('sala')) {
-                colMap.sala = j;
-            }
-            // Status column
-            if (cell.includes('status') || cell.includes('situação') || cell.includes('situacao')) {
-                colMap.status = j;
-            }
-            // Valor column
-            if ((cell.includes('valor') && !cell.includes('total')) || cell === 'vl') {
-                colMap.valor = j;
-            }
-        }
+        console.log('Cabeçalho (linha 8):', headerRowData.slice(0, 22));
     }
-
-    console.log('Mapeamento de colunas:', colMap);
 
     for (let i = DATA_START; i < rows.length; i++) {
         const row = rows[i];
         if (!row) continue;
 
-        const nome = String(row[colMap.nome] || '').trim();
-        const sala = String(row[colMap.sala] || '').trim();
-        const status = String(row[colMap.status] || '').trim();
-        const valor = parseFloat(row[colMap.valor]) || 0;
+        const nome = String(row[COL.nome] || '').trim();
+        const sala = String(row[COL.sala] || '').trim();
+        const status = String(row[COL.status] || '').trim();
+        const valor = parseFloat(row[COL.valor]) || 0;
 
         // Skip invalid/summary rows
         if (!isValidNome(nome)) continue;
@@ -255,7 +237,7 @@ function parseSheetData(rows) {
 
         // Parse date for period
         let periodo = '';
-        const dataCell = row[colMap.data];
+        const dataCell = row[COL.data];
         if (dataCell) {
             const dateObj = parseExcelDate(dataCell);
             if (dateObj) {
