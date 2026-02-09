@@ -72,16 +72,33 @@ function toggleFilters() {
     document.getElementById('filtersContent').classList.toggle('active');
 }
 
+function isValidSala(sala) {
+    if (!sala) return false;
+    // Exclude rows that are summaries or invalid
+    const invalid = ['total', 'soma', 'subtotal', 'vale', '-', ''];
+    if (invalid.some(i => sala.toLowerCase().includes(i))) return false;
+    // Exclude pure numbers
+    if (/^\d+$/.test(sala)) return false;
+    return true;
+}
+
+function isValidNome(nome) {
+    if (!nome) return false;
+    const invalid = ['total', 'soma', 'subtotal', '-', ''];
+    if (invalid.some(i => nome.toLowerCase().includes(i))) return false;
+    if (/^\d+$/.test(nome)) return false;
+    return true;
+}
+
 function populateFilters() {
-    // Get unique values
     const periodos = new Set();
     const salas = new Set();
     const statuses = new Set();
 
     rawData.forEach(item => {
         if (item.periodo) periodos.add(item.periodo);
-        if (item.sala) salas.add(item.sala);
-        if (item.status) statuses.add(item.status);
+        if (item.sala && isValidSala(item.sala)) salas.add(item.sala);
+        if (item.status && item.status !== 'Não informado') statuses.add(item.status);
     });
 
     // Populate period filter
@@ -91,7 +108,7 @@ function populateFilters() {
         periodoSelect.innerHTML += `<option value="${p}">${p}</option>`;
     });
 
-    // Populate sala filter
+    // Populate sala filter - sorted alphabetically
     const salaSelect = document.getElementById('filterSala');
     salaSelect.innerHTML = '<option value="">Todas</option>';
     [...salas].sort().forEach(s => {
@@ -186,29 +203,42 @@ function findValidSheet(workbook) {
 
 function parseSheetData(rows) {
     const data = [];
+
+    // Default column positions based on user's spreadsheet structure
+    // Headers at row 8 (index 7), data starts row 9 (index 8)
     let colMap = { data: 6, nome: 10, sala: 11, status: 14, valor: 19 };
 
     const headerRowData = rows[HEADER_ROW];
     if (headerRowData) {
+        console.log('Cabeçalho encontrado:', headerRowData);
+
         for (let j = 0; j < headerRowData.length; j++) {
             const cell = String(headerRowData[j] || '').toLowerCase().trim();
+
+            // Data column
             if ((cell.includes('data') && (cell.includes('lan') || cell.includes('lcto'))) || cell === 'data') {
                 colMap.data = j;
             }
+            // Nome column
             if (cell.includes('nome') || cell.includes('funcionário') || cell.includes('funcionario')) {
                 colMap.nome = j;
             }
-            if (cell.includes('sala') || cell === 'setor' || cell === 'unidade') {
+            // Sala column - be more specific
+            if (cell === 'sala' || cell === 'setor' || cell === 'unidade' || cell.includes('sala')) {
                 colMap.sala = j;
             }
+            // Status column
             if (cell.includes('status') || cell.includes('situação') || cell.includes('situacao')) {
                 colMap.status = j;
             }
-            if (cell.includes('valor') || cell === 'vl' || cell === 'total') {
+            // Valor column
+            if ((cell.includes('valor') && !cell.includes('total')) || cell === 'vl') {
                 colMap.valor = j;
             }
         }
     }
+
+    console.log('Mapeamento de colunas:', colMap);
 
     for (let i = DATA_START; i < rows.length; i++) {
         const row = rows[i];
@@ -218,6 +248,10 @@ function parseSheetData(rows) {
         const sala = String(row[colMap.sala] || '').trim();
         const status = String(row[colMap.status] || '').trim();
         const valor = parseFloat(row[colMap.valor]) || 0;
+
+        // Skip invalid/summary rows
+        if (!isValidNome(nome)) continue;
+        if (!status) continue;
 
         // Parse date for period
         let periodo = '';
@@ -229,11 +263,9 @@ function parseSheetData(rows) {
             }
         }
 
-        if (!nome && !status) continue;
-
         data.push({
             nome: nome,
-            sala: sala,
+            sala: isValidSala(sala) ? sala : 'N/A',
             status: normalizeStatus(status),
             valor: valor,
             periodo: periodo
@@ -374,6 +406,7 @@ function updateOfensores() {
 
     const grouped = {};
     reprovados.forEach(item => {
+        if (!isValidNome(item.nome)) return;
         if (!grouped[item.nome]) {
             grouped[item.nome] = { nome: item.nome, sala: item.sala, count: 0, valor: 0 };
         }
@@ -397,6 +430,7 @@ function updateSalas() {
 
     const grouped = {};
     reprovados.forEach(item => {
+        if (!isValidSala(item.sala)) return;
         if (!grouped[item.sala]) {
             grouped[item.sala] = { sala: item.sala, count: 0, valor: 0 };
         }
@@ -548,6 +582,7 @@ function updateSalaChart() {
 
     const grouped = {};
     reprovados.forEach(item => {
+        if (!isValidSala(item.sala)) return;
         if (!grouped[item.sala]) grouped[item.sala] = 0;
         grouped[item.sala]++;
     });
