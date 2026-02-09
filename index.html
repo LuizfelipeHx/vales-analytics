@@ -9,8 +9,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Vales Analytics</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="icon" type="image/png" href="icons/icon-192.png">
-    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="icon" type="image/svg+xml" href="icons/icon-192.svg">
+    <link rel="apple-touch-icon" href="icons/icon-192.svg">
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -28,6 +28,41 @@
         <h1>📊 Vales Analytics</h1>
         <button class="refresh-btn" id="refreshBtn" title="Atualizar">🔄</button>
     </header>
+
+    <!-- Filters Section -->
+    <section class="filters-section" id="filtersSection">
+        <div class="filters-toggle" id="filtersToggle">
+            <span>🔍 Filtros</span>
+            <span class="toggle-arrow">▼</span>
+        </div>
+        <div class="filters-content" id="filtersContent">
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>Período</label>
+                    <select id="filterPeriodo">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Sala</label>
+                    <select id="filterSala">
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+            </div>
+            <div class="filter-row">
+                <div class="filter-group">
+                    <label>Status</label>
+                    <select id="filterStatus">
+                        <option value="">Todos</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <button class="btn-clear" id="clearFilters">🗑️ Limpar</button>
+                </div>
+            </div>
+        </div>
+    </section>
 
     <!-- Main Content -->
     <main class="main-content">
@@ -59,7 +94,7 @@
                     <div class="kpi-sublabel" id="valorReprovado">R$ 0</div>
                 </div>
                 <div class="kpi-card abonado">
-                    <div class="kpi-icon">🔄</div>
+                    <div class="kpi-icon">✅</div>
                     <div class="kpi-value" id="totalAbonado">0</div>
                     <div class="kpi-label">Abonados</div>
                     <div class="kpi-sublabel" id="valorAbonado">R$ 0</div>
@@ -76,7 +111,7 @@
             <div class="kpi-grid secondary">
                 <div class="kpi-card info">
                     <div class="kpi-value" id="valorMedio">R$ 0</div>
-                    <div class="kpi-label">Média/Reprovado</div>
+                    <div class="kpi-label">Média/Repr.</div>
                 </div>
                 <div class="kpi-card info">
                     <div class="kpi-value" id="taxaReprovacao">0%</div>
@@ -90,29 +125,53 @@
 
             <!-- Tabs -->
             <div class="tabs">
-                <button class="tab active" data-tab="ofensores">🎯 Ofensores</button>
+                <button class="tab active" data-tab="graficos">📊 Gráficos</button>
+                <button class="tab" data-tab="ofensores">🎯 Ofensores</button>
                 <button class="tab" data-tab="salas">🏢 Salas</button>
-                <button class="tab" data-tab="grafico">📊 Gráfico</button>
+            </div>
+
+            <!-- Tab Content: Gráficos -->
+            <div class="tab-content active" id="tab-graficos">
+                <div class="chart-card">
+                    <h3>📊 Distribuição por Status</h3>
+                    <div class="chart-container">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h3>📈 Evolução Mensal</h3>
+                    <div class="chart-container chart-bar">
+                        <canvas id="evolutionChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h3>🏢 Reprovados por Sala</h3>
+                    <div class="chart-container chart-bar">
+                        <canvas id="salaChart"></canvas>
+                    </div>
+                </div>
             </div>
 
             <!-- Tab Content: Ofensores -->
-            <div class="tab-content active" id="tab-ofensores">
-                <h3>Top 10 Ofensores</h3>
+            <div class="tab-content" id="tab-ofensores">
+                <h3>🎯 Top 10 Ofensores</h3>
+                <div class="ranking-toggle">
+                    <button class="ranking-btn active" data-sort="quantidade">Por Quantidade</button>
+                    <button class="ranking-btn" data-sort="valor">Por Valor</button>
+                </div>
                 <div class="ofensor-list" id="ofensorList"></div>
             </div>
 
             <!-- Tab Content: Salas -->
             <div class="tab-content" id="tab-salas">
-                <h3>Top 10 Salas</h3>
-                <div class="ofensor-list" id="salaList"></div>
-            </div>
-
-            <!-- Tab Content: Gráfico -->
-            <div class="tab-content" id="tab-grafico">
-                <h3>Distribuição por Status</h3>
-                <div class="chart-container">
-                    <canvas id="statusChart"></canvas>
+                <h3>🏢 Top 10 Salas</h3>
+                <div class="ranking-toggle">
+                    <button class="ranking-btn active" data-sort="quantidade">Por Quantidade</button>
+                    <button class="ranking-btn" data-sort="valor">Por Valor</button>
                 </div>
+                <div class="ofensor-list" id="salaList"></div>
             </div>
         </div>
     </main>
