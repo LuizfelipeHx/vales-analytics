@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#6c5ce7">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Vales Analytics</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <p>Carregando dados...</p>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <h1>📊 Vales Analytics</h1>
+        <button class="refresh-btn" id="refreshBtn" title="Atualizar">🔄</button>
+    </header>
+
+    <!-- Config Panel -->
+    <div class="config-panel" id="configPanel">
+        <div class="config-content">
+            <h2>⚙️ Configurar Fonte de Dados</h2>
+            <p>Cole o link de compartilhamento do Excel no OneDrive:</p>
+            <input type="url" id="excelUrl" placeholder="https://1drv.ms/x/..." class="url-input">
+            <div class="config-buttons">
+                <button class="btn btn-primary" id="saveUrlBtn">💾 Salvar e Carregar</button>
+                <button class="btn btn-secondary" id="cancelConfigBtn">Cancelar</button>
+            </div>
+            <p class="hint">💡 No OneDrive, clique com botão direito no arquivo → "Compartilhar" → "Copiar link"</p>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Empty State -->
+        <div class="empty-state" id="emptyState">
+            <div class="empty-icon">📁</div>
+            <h2>Nenhum dado carregado</h2>
+            <p>Configure a URL do Excel para começar</p>
+            <button class="btn btn-primary btn-large" id="openConfigBtn">⚙️ Configurar</button>
+        </div>
+
+        <!-- Dashboard -->
+        <div class="dashboard" id="dashboard" style="display: none;">
+            <!-- Period Info -->
+            <div class="period-info" id="periodInfo">
+                <span>📅 Período carregado</span>
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="kpi-grid">
+                <div class="kpi-card total">
+                    <div class="kpi-icon">📋</div>
+                    <div class="kpi-value" id="totalVales">0</div>
+                    <div class="kpi-label">Total</div>
+                </div>
+                <div class="kpi-card reprovado">
+                    <div class="kpi-icon">❌</div>
+                    <div class="kpi-value" id="totalReprovado">0</div>
+                    <div class="kpi-label">Reprovados</div>
+                    <div class="kpi-sublabel" id="valorReprovado">R$ 0</div>
+                </div>
+                <div class="kpi-card abonado">
+                    <div class="kpi-icon">🔄</div>
+                    <div class="kpi-value" id="totalAbonado">0</div>
+                    <div class="kpi-label">Abonados</div>
+                    <div class="kpi-sublabel" id="valorAbonado">R$ 0</div>
+                </div>
+                <div class="kpi-card analise">
+                    <div class="kpi-icon">🔍</div>
+                    <div class="kpi-value" id="totalAnalise">0</div>
+                    <div class="kpi-label">Em Análise</div>
+                    <div class="kpi-sublabel" id="valorAnalise">R$ 0</div>
+                </div>
+            </div>
+
+            <!-- Secondary KPIs -->
+            <div class="kpi-grid secondary">
+                <div class="kpi-card info">
+                    <div class="kpi-value" id="valorMedio">R$ 0</div>
+                    <div class="kpi-label">Média/Reprovado</div>
+                </div>
+                <div class="kpi-card info">
+                    <div class="kpi-value" id="taxaReprovacao">0%</div>
+                    <div class="kpi-label">% Reprovados</div>
+                </div>
+                <div class="kpi-card info">
+                    <div class="kpi-value" id="valorTotal">R$ 0</div>
+                    <div class="kpi-label">Valor Total</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" data-tab="ofensores">🎯 Ofensores</button>
+                <button class="tab" data-tab="salas">🏢 Salas</button>
+                <button class="tab" data-tab="grafico">📊 Gráfico</button>
+            </div>
+
+            <!-- Tab Content: Ofensores -->
+            <div class="tab-content active" id="tab-ofensores">
+                <h3>Top 10 Ofensores</h3>
+                <div class="ofensor-list" id="ofensorList"></div>
+            </div>
+
+            <!-- Tab Content: Salas -->
+            <div class="tab-content" id="tab-salas">
+                <h3>Top 10 Salas</h3>
+                <div class="ofensor-list" id="salaList"></div>
+            </div>
+
+            <!-- Tab Content: Gráfico -->
+            <div class="tab-content" id="tab-grafico">
+                <h3>Distribuição por Status</h3>
+                <div class="chart-container">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom Nav -->
+    <nav class="bottom-nav">
+        <button class="nav-btn active" data-action="dashboard">
+            <span class="nav-icon">📊</span>
+            <span class="nav-label">Dashboard</span>
+        </button>
+        <button class="nav-btn" data-action="refresh">
+            <span class="nav-icon">🔄</span>
+            <span class="nav-label">Atualizar</span>
+        </button>
+        <button class="nav-btn" data-action="config">
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-label">Config</span>
+        </button>
+    </nav>
+
+    <script src="app.js"></script>
+</body>
+
+</html>
