@@ -32,14 +32,32 @@
     <!-- Config Panel -->
     <div class="config-panel" id="configPanel">
         <div class="config-content">
-            <h2>⚙️ Configurar Fonte de Dados</h2>
-            <p>Cole o link de compartilhamento do Excel no OneDrive:</p>
-            <input type="url" id="excelUrl" placeholder="https://1drv.ms/x/..." class="url-input">
+            <h2>📁 Carregar Planilha</h2>
+
+            <div class="upload-section">
+                <p>Selecione o arquivo Excel do seu celular:</p>
+                <label class="file-upload-btn">
+                    <input type="file" id="fileInput" accept=".xlsx,.xls" hidden>
+                    📂 Escolher Arquivo
+                </label>
+                <span class="file-name" id="fileName">Nenhum arquivo selecionado</span>
+            </div>
+
+            <div class="divider">
+                <span>ou</span>
+            </div>
+
+            <div class="url-section">
+                <p>Cole um link do OneDrive (pessoal):</p>
+                <input type="url" id="excelUrl" placeholder="https://1drv.ms/x/..." class="url-input">
+            </div>
+
             <div class="config-buttons">
-                <button class="btn btn-primary" id="saveUrlBtn">💾 Salvar e Carregar</button>
+                <button class="btn btn-primary" id="loadDataBtn">📊 Carregar Dados</button>
                 <button class="btn btn-secondary" id="cancelConfigBtn">Cancelar</button>
             </div>
-            <p class="hint">💡 No OneDrive, clique com botão direito no arquivo → "Compartilhar" → "Copiar link"</p>
+
+            <p class="hint">💡 Para atualizar os dados, basta carregar o arquivo novamente</p>
         </div>
     </div>
 
@@ -49,8 +67,8 @@
         <div class="empty-state" id="emptyState">
             <div class="empty-icon">📁</div>
             <h2>Nenhum dado carregado</h2>
-            <p>Configure a URL do Excel para começar</p>
-            <button class="btn btn-primary btn-large" id="openConfigBtn">⚙️ Configurar</button>
+            <p>Carregue a planilha Excel para começar</p>
+            <button class="btn btn-primary btn-large" id="openConfigBtn">📂 Carregar Planilha</button>
         </div>
 
         <!-- Dashboard -->
