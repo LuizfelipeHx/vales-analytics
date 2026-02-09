@@ -1,6 +1,11 @@
 // ===== Global State =====
 let rawData = [];
+let filteredData = [];
 let statusChart = null;
+let evolutionChart = null;
+let salaChart = null;
+let ofensorSortBy = 'quantidade';
+let salaSortBy = 'quantidade';
 
 // ===== Constants =====
 const EXCEL_URL = 'https://raw.githubusercontent.com/LuizfelipeHx/vales-analytics/main/dados.xlsx';
@@ -22,6 +27,15 @@ function setupEventListeners() {
     // Refresh button
     document.getElementById('refreshBtn').addEventListener('click', loadDataFromGitHub);
 
+    // Filters toggle
+    document.getElementById('filtersToggle').addEventListener('click', toggleFilters);
+
+    // Filter changes
+    document.getElementById('filterPeriodo').addEventListener('change', applyFilters);
+    document.getElementById('filterSala').addEventListener('change', applyFilters);
+    document.getElementById('filterStatus').addEventListener('change', applyFilters);
+    document.getElementById('clearFilters').addEventListener('click', clearFilters);
+
     // Bottom nav
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.addEventListener('click', () => handleNavAction(btn.dataset.action));
@@ -31,6 +45,88 @@ function setupEventListeners() {
     document.querySelectorAll('.tab').forEach(tab => {
         tab.addEventListener('click', () => switchTab(tab.dataset.tab));
     });
+
+    // Ranking toggles
+    document.querySelectorAll('#tab-ofensores .ranking-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#tab-ofensores .ranking-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            ofensorSortBy = btn.dataset.sort;
+            updateOfensores();
+        });
+    });
+
+    document.querySelectorAll('#tab-salas .ranking-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#tab-salas .ranking-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            salaSortBy = btn.dataset.sort;
+            updateSalas();
+        });
+    });
+}
+
+// ===== Filters =====
+function toggleFilters() {
+    document.getElementById('filtersToggle').classList.toggle('active');
+    document.getElementById('filtersContent').classList.toggle('active');
+}
+
+function populateFilters() {
+    // Get unique values
+    const periodos = new Set();
+    const salas = new Set();
+    const statuses = new Set();
+
+    rawData.forEach(item => {
+        if (item.periodo) periodos.add(item.periodo);
+        if (item.sala) salas.add(item.sala);
+        if (item.status) statuses.add(item.status);
+    });
+
+    // Populate period filter
+    const periodoSelect = document.getElementById('filterPeriodo');
+    periodoSelect.innerHTML = '<option value="">Todos</option>';
+    [...periodos].sort().reverse().forEach(p => {
+        periodoSelect.innerHTML += `<option value="${p}">${p}</option>`;
+    });
+
+    // Populate sala filter
+    const salaSelect = document.getElementById('filterSala');
+    salaSelect.innerHTML = '<option value="">Todas</option>';
+    [...salas].sort().forEach(s => {
+        salaSelect.innerHTML += `<option value="${s}">${s}</option>`;
+    });
+
+    // Populate status filter
+    const statusSelect = document.getElementById('filterStatus');
+    statusSelect.innerHTML = '<option value="">Todos</option>';
+    [...statuses].sort().forEach(s => {
+        statusSelect.innerHTML += `<option value="${s}">${s}</option>`;
+    });
+}
+
+function applyFilters() {
+    const periodo = document.getElementById('filterPeriodo').value;
+    const sala = document.getElementById('filterSala').value;
+    const status = document.getElementById('filterStatus').value;
+
+    filteredData = rawData.filter(item => {
+        if (periodo && item.periodo !== periodo) return false;
+        if (sala && item.sala !== sala) return false;
+        if (status && item.status !== status) return false;
+        return true;
+    });
+
+    updateAllData();
+}
+
+function clearFilters() {
+    document.getElementById('filterPeriodo').value = '';
+    document.getElementById('filterSala').value = '';
+    document.getElementById('filterStatus').value = '';
+    filteredData = [...rawData];
+    updateAllData();
 }
 
 // ===== Data Loading from GitHub =====
@@ -40,15 +136,14 @@ async function loadDataFromGitHub() {
     try {
         console.log('Carregando dados de:', EXCEL_URL);
 
-        const response = await fetch(EXCEL_URL + '?t=' + Date.now()); // Cache busting
+        const response = await fetch(EXCEL_URL + '?t=' + Date.now());
         if (!response.ok) {
-            throw new Error('Arquivo não encontrado. Verifique se dados.xlsx foi enviado para o GitHub.');
+            throw new Error('Arquivo não encontrado. Verifique se dados.xlsx foi enviado.');
         }
 
         const arrayBuffer = await response.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: 'array' });
 
-        // Find the correct sheet
         const sheetName = findValidSheet(workbook);
         if (!sheetName) {
             throw new Error('Nenhuma aba válida encontrada');
@@ -58,12 +153,14 @@ async function loadDataFromGitHub() {
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
 
         rawData = parseSheetData(rows);
+        filteredData = [...rawData];
         console.log('Dados carregados:', rawData.length, 'registros');
 
         if (rawData.length === 0) {
             throw new Error('Nenhum dado encontrado na planilha');
         }
 
+        populateFilters();
         showDashboard();
         updateAllData();
         updateLastUpdate();
@@ -78,29 +175,23 @@ async function loadDataFromGitHub() {
 
 function findValidSheet(workbook) {
     const keywords = ['vales', 'dados', 'planilha', 'sheet'];
-
     for (const name of workbook.SheetNames) {
         const lower = name.toLowerCase();
         if (keywords.some(k => lower.includes(k))) {
             return name;
         }
     }
-
-    // Return first sheet if no match
     return workbook.SheetNames[0];
 }
 
 function parseSheetData(rows) {
     const data = [];
-
-    // Find column positions from header row
     let colMap = { data: 6, nome: 10, sala: 11, status: 14, valor: 19 };
 
     const headerRowData = rows[HEADER_ROW];
     if (headerRowData) {
         for (let j = 0; j < headerRowData.length; j++) {
             const cell = String(headerRowData[j] || '').toLowerCase().trim();
-
             if ((cell.includes('data') && (cell.includes('lan') || cell.includes('lcto'))) || cell === 'data') {
                 colMap.data = j;
             }
@@ -119,7 +210,6 @@ function parseSheetData(rows) {
         }
     }
 
-    // Parse data rows
     for (let i = DATA_START; i < rows.length; i++) {
         const row = rows[i];
         if (!row) continue;
@@ -129,17 +219,42 @@ function parseSheetData(rows) {
         const status = String(row[colMap.status] || '').trim();
         const valor = parseFloat(row[colMap.valor]) || 0;
 
+        // Parse date for period
+        let periodo = '';
+        const dataCell = row[colMap.data];
+        if (dataCell) {
+            const dateObj = parseExcelDate(dataCell);
+            if (dateObj) {
+                periodo = dateObj.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' });
+            }
+        }
+
         if (!nome && !status) continue;
 
         data.push({
             nome: nome,
             sala: sala,
             status: normalizeStatus(status),
-            valor: valor
+            valor: valor,
+            periodo: periodo
         });
     }
 
     return data;
+}
+
+function parseExcelDate(value) {
+    if (typeof value === 'number') {
+        // Excel serial date
+        const date = new Date((value - 25569) * 86400 * 1000);
+        return date;
+    } else if (typeof value === 'string') {
+        const parts = value.split('/');
+        if (parts.length === 3) {
+            return new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+    }
+    return null;
 }
 
 function normalizeStatus(status) {
@@ -172,18 +287,15 @@ function updateLastUpdate() {
         hour: '2-digit',
         minute: '2-digit'
     });
-    document.getElementById('periodInfo').innerHTML = `<span>📅 ${rawData.length} registros • Atualizado: ${formatted}</span>`;
+    document.getElementById('periodInfo').innerHTML = `<span>📅 ${filteredData.length} registros • ${formatted}</span>`;
 }
 
 function handleNavAction(action) {
     document.querySelectorAll('.nav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.action === action);
     });
-
-    switch (action) {
-        case 'refresh':
-            loadDataFromGitHub();
-            break;
+    if (action === 'refresh') {
+        loadDataFromGitHub();
     }
 }
 
@@ -191,7 +303,6 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab').forEach(tab => {
         tab.classList.toggle('active', tab.dataset.tab === tabName);
     });
-
     document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.toggle('active', content.id === `tab-${tabName}`);
     });
@@ -199,11 +310,12 @@ function switchTab(tabName) {
 
 // ===== Data Calculations =====
 function updateAllData() {
-    const totals = calculateTotals(rawData);
+    const totals = calculateTotals(filteredData);
     updateKPIs(totals);
     updateOfensores();
     updateSalas();
-    updateChart(totals);
+    updateCharts(totals);
+    updateLastUpdate();
 }
 
 function calculateTotals(data) {
@@ -217,7 +329,6 @@ function calculateTotals(data) {
 
     data.forEach(item => {
         const status = item.status.toLowerCase();
-
         if (status.includes('reprovad') || status.includes('cobrança')) {
             result.reprovado.count++;
             result.reprovado.value += item.valor;
@@ -245,19 +356,18 @@ function updateKPIs(totals) {
     document.getElementById('totalAnalise').textContent = totals.analise.count;
     document.getElementById('valorAnalise').textContent = formatCurrency(totals.analise.value);
 
-    // Secondary KPIs
     const valorMedio = totals.reprovado.count > 0 ? totals.reprovado.value / totals.reprovado.count : 0;
     document.getElementById('valorMedio').textContent = formatCurrency(valorMedio);
 
     const taxaReprovacao = totals.total > 0 ? (totals.reprovado.count / totals.total * 100) : 0;
     document.getElementById('taxaReprovacao').textContent = taxaReprovacao.toFixed(1) + '%';
 
-    const valorTotal = rawData.reduce((sum, item) => sum + item.valor, 0);
+    const valorTotal = filteredData.reduce((sum, item) => sum + item.valor, 0);
     document.getElementById('valorTotal').textContent = formatCurrency(valorTotal);
 }
 
 function updateOfensores() {
-    const reprovados = rawData.filter(item => {
+    const reprovados = filteredData.filter(item => {
         const status = item.status.toLowerCase();
         return status.includes('reprovad') || status.includes('cobrança');
     });
@@ -271,15 +381,16 @@ function updateOfensores() {
         grouped[item.nome].valor += item.valor;
     });
 
+    const sortKey = ofensorSortBy === 'valor' ? 'valor' : 'count';
     const top10 = Object.values(grouped)
-        .sort((a, b) => b.count - a.count)
+        .sort((a, b) => b[sortKey] - a[sortKey])
         .slice(0, 10);
 
     renderOfensorList('ofensorList', top10);
 }
 
 function updateSalas() {
-    const reprovados = rawData.filter(item => {
+    const reprovados = filteredData.filter(item => {
         const status = item.status.toLowerCase();
         return status.includes('reprovad') || status.includes('cobrança');
     });
@@ -293,8 +404,9 @@ function updateSalas() {
         grouped[item.sala].valor += item.valor;
     });
 
+    const sortKey = salaSortBy === 'valor' ? 'valor' : 'count';
     const top10 = Object.values(grouped)
-        .sort((a, b) => b.count - a.count)
+        .sort((a, b) => b[sortKey] - a[sortKey])
         .slice(0, 10);
 
     renderSalaList('salaList', top10);
@@ -302,9 +414,8 @@ function updateSalas() {
 
 function renderOfensorList(containerId, data) {
     const container = document.getElementById(containerId);
-
     if (data.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:var(--text-secondary)">Nenhum ofensor encontrado</p>';
+        container.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:20px">Nenhum ofensor encontrado</p>';
         return;
     }
 
@@ -325,9 +436,8 @@ function renderOfensorList(containerId, data) {
 
 function renderSalaList(containerId, data) {
     const container = document.getElementById(containerId);
-
     if (data.length === 0) {
-        container.innerHTML = '<p style="text-align:center;color:var(--text-secondary)">Nenhuma sala encontrada</p>';
+        container.innerHTML = '<p style="text-align:center;color:var(--text-secondary);padding:20px">Nenhuma sala encontrada</p>';
         return;
     }
 
@@ -345,25 +455,24 @@ function renderSalaList(containerId, data) {
     `).join('');
 }
 
-function updateChart(totals) {
-    const ctx = document.getElementById('statusChart').getContext('2d');
+// ===== Charts =====
+function updateCharts(totals) {
+    updateStatusChart(totals);
+    updateEvolutionChart();
+    updateSalaChart();
+}
 
-    if (statusChart) {
-        statusChart.destroy();
-    }
+function updateStatusChart(totals) {
+    const ctx = document.getElementById('statusChart').getContext('2d');
+    if (statusChart) statusChart.destroy();
 
     statusChart = new Chart(ctx, {
         type: 'doughnut',
         data: {
             labels: ['Reprovados', 'Abonados', 'Em Análise', 'Outros'],
             datasets: [{
-                data: [
-                    totals.reprovado.count,
-                    totals.abonado.count,
-                    totals.analise.count,
-                    totals.outros.count
-                ],
-                backgroundColor: ['#ff7675', '#74b9ff', '#9b59b6', '#fdcb6e'],
+                data: [totals.reprovado.count, totals.abonado.count, totals.analise.count, totals.outros.count],
+                backgroundColor: ['#ff7675', '#00cec9', '#9b59b6', '#fdcb6e'],
                 borderWidth: 0
             }]
         },
@@ -371,14 +480,102 @@ function updateChart(totals) {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: {
-                        color: '#a0a0b0',
-                        padding: 16,
-                        usePointStyle: true
-                    }
-                }
+                legend: { position: 'bottom', labels: { color: '#a0a0b0', padding: 12, usePointStyle: true, font: { size: 11 } } }
+            }
+        }
+    });
+}
+
+function updateEvolutionChart() {
+    const ctx = document.getElementById('evolutionChart').getContext('2d');
+    if (evolutionChart) evolutionChart.destroy();
+
+    // Group by period
+    const periodos = {};
+    filteredData.forEach(item => {
+        if (!item.periodo) return;
+        if (!periodos[item.periodo]) {
+            periodos[item.periodo] = { reprovado: 0, abonado: 0, analise: 0 };
+        }
+        const status = item.status.toLowerCase();
+        if (status.includes('reprovad') || status.includes('cobrança')) {
+            periodos[item.periodo].reprovado++;
+        } else if (status.includes('abonad')) {
+            periodos[item.periodo].abonado++;
+        } else if (status.includes('análise') || status.includes('analise')) {
+            periodos[item.periodo].analise++;
+        }
+    });
+
+    const labels = Object.keys(periodos).sort();
+    const reprovadoData = labels.map(p => periodos[p].reprovado);
+    const abonadoData = labels.map(p => periodos[p].abonado);
+    const analiseData = labels.map(p => periodos[p].analise);
+
+    evolutionChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                { label: 'Reprovados', data: reprovadoData, backgroundColor: '#ff7675' },
+                { label: 'Abonados', data: abonadoData, backgroundColor: '#00cec9' },
+                { label: 'Análise', data: analiseData, backgroundColor: '#9b59b6' }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { stacked: true, ticks: { color: '#a0a0b0', font: { size: 10 } }, grid: { display: false } },
+                y: { stacked: true, ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+            },
+            plugins: {
+                legend: { position: 'bottom', labels: { color: '#a0a0b0', padding: 8, usePointStyle: true, font: { size: 10 } } }
+            }
+        }
+    });
+}
+
+function updateSalaChart() {
+    const ctx = document.getElementById('salaChart').getContext('2d');
+    if (salaChart) salaChart.destroy();
+
+    // Get top 5 salas by reprovados
+    const reprovados = filteredData.filter(item => {
+        const status = item.status.toLowerCase();
+        return status.includes('reprovad') || status.includes('cobrança');
+    });
+
+    const grouped = {};
+    reprovados.forEach(item => {
+        if (!grouped[item.sala]) grouped[item.sala] = 0;
+        grouped[item.sala]++;
+    });
+
+    const sorted = Object.entries(grouped).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const labels = sorted.map(s => s[0] || 'N/A');
+    const data = sorted.map(s => s[1]);
+
+    salaChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Reprovados',
+                data: data,
+                backgroundColor: ['#ff7675', '#fd9644', '#fdcb6e', '#a29bfe', '#74b9ff']
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { ticks: { color: '#a0a0b0' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+                y: { ticks: { color: '#a0a0b0', font: { size: 11 } }, grid: { display: false } }
+            },
+            plugins: {
+                legend: { display: false }
             }
         }
     });
